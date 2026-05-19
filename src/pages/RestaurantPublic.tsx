@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { ShoppingCart, Plus, Minus, Image as ImageIcon, Trash2, Info, MapPin, Clock, Bike, Store, Share2, MessageCircle, Instagram, Facebook, CheckCircle2 } from "lucide-react";
+import { ShoppingCart, Plus, Minus, Image as ImageIcon, Trash2, Info, MapPin, Clock, Bike, Store, Share2, MessageCircle, Instagram, Facebook, CheckCircle2, Loader2 } from "lucide-react";
 import { useCart, CartItemOption } from "@/hooks/useCart";
 import { brl } from "@/lib/format";
 import { Checkout } from "@/components/Checkout";
@@ -18,6 +18,19 @@ import { CouponsBanner } from "@/components/CouponsBanner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { isOpenNow, ManualOverride, DAY_LABELS } from "@/lib/hours";
 import { toast } from "sonner";
+
+function preloadImages(urls: string[]): Promise<void> {
+  return Promise.all(
+    urls.filter(Boolean).map((url) => {
+      return new Promise<void>((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve();
+        img.onerror = () => resolve();
+        img.src = url;
+      });
+    })
+  ).then(() => {});
+}
 
 interface Restaurant { id: string; name: string; slug: string; description: string | null; logo_url: string | null; cover_url: string | null; is_open: boolean; phone: string | null; opening_hours: any; latitude: number | null; longitude: number | null; delivery_zones: any; manual_override: ManualOverride; address_cep: string | null; address_street: string | null; address_number: string | null; address_complement: string | null; address_neighborhood: string | null; address_city: string | null; address_state: string | null; delivery_time_min: number | null; delivery_time_max: number | null; whatsapp_url: string | null; instagram_url: string | null; facebook_url: string | null; service_delivery: boolean | null; service_pickup: boolean | null; }
 interface Category { id: string; name: string; sort_order: number; }
@@ -40,6 +53,7 @@ export default function RestaurantPublic() {
   const cart = useCart();
 
   const [loading, setLoading] = useState(true);
+  const [imagesPreloaded, setImagesPreloaded] = useState(false);
 
   const productGroups = selected ? (groupsByProduct[selected.id] ?? []) : [];
 
@@ -87,6 +101,7 @@ export default function RestaurantPublic() {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      setImagesPreloaded(false);
       const { data: r } = await supabase.from("restaurants").select("*").eq("slug", slug!).maybeSingle();
       if (cancelled) return;
       if (!r) { setLoading(false); return; }
@@ -97,6 +112,15 @@ export default function RestaurantPublic() {
       setProducts(prods);
       setGroupsByProduct(idx);
       setSuggestionIds(sIds);
+      
+      const imageUrls: string[] = [];
+      if (r.cover_url) imageUrls.push(r.cover_url);
+      if (r.logo_url) imageUrls.push(r.logo_url);
+      prods.forEach((p) => { if (p.image_url) imageUrls.push(p.image_url); });
+      
+      await preloadImages(imageUrls);
+      if (cancelled) return;
+      setImagesPreloaded(true);
       setLoading(false);
     })();
     return () => { cancelled = true; };
@@ -297,9 +321,11 @@ export default function RestaurantPublic() {
     setSelected(null); setQty(1); setNotes(""); setSelectedOpts({});
   };
 
-  if (loading && !restaurant) {
+  const isLoading = loading || !imagesPreloaded;
+  
+  if (isLoading && !restaurant) {
     return (
-      <div className="min-h-screen pb-24">
+      <div className="min-h-screen pb-24 flex flex-col">
         <header className="bg-gradient-warm">
           <div className="container py-8 flex items-center gap-4">
             <Skeleton className="w-20 h-20 rounded-full" />
@@ -311,9 +337,9 @@ export default function RestaurantPublic() {
           </div>
         </header>
         <main className="container py-6 space-y-6">
-          <Skeleton className="h-7 w-40" />
-          <div className="grid gap-3 md:grid-cols-2">
-            <Skeleton className="h-28" /><Skeleton className="h-28" /><Skeleton className="h-28" /><Skeleton className="h-28" />
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground mr-2" />
+            <span className="text-muted-foreground">Carregando imagens...</span>
           </div>
         </main>
       </div>
@@ -332,6 +358,8 @@ export default function RestaurantPublic() {
             <img
               src={restaurant.cover_url}
               alt={`Capa ${restaurant.name}`}
+              loading={imagesPreloaded ? "eager" : "lazy"}
+              decoding="async"
               className="absolute inset-0 w-full h-full object-cover object-center"
             />
           )}
@@ -365,6 +393,8 @@ export default function RestaurantPublic() {
                   <img
                     src={restaurant.logo_url}
                     alt={restaurant.name}
+                    loading={imagesPreloaded ? "eager" : "lazy"}
+                    decoding="async"
                     className="w-24 h-24 sm:w-28 sm:h-28 rounded-full object-cover border-4 border-background shadow-lg bg-background"
                   />
                 ) : (
@@ -450,7 +480,7 @@ export default function RestaurantPublic() {
                   <Card key={p.id} className="cursor-pointer hover:shadow-elegant transition-shadow overflow-hidden" onClick={() => { setSelected(p); setQty(1); setNotes(""); }}>
                     <CardContent className="p-3 flex gap-3">
                       <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-lg bg-muted overflow-hidden grid place-items-center shrink-0">
-                        {p.image_url ? <img src={p.image_url} alt={p.name} loading="lazy" decoding="async" className="w-full h-full object-cover" /> : <ImageIcon className="w-7 h-7 text-muted-foreground" />}
+                        {p.image_url ? <img src={p.image_url} alt={p.name} loading={imagesPreloaded ? "eager" : "lazy"} decoding="async" className="w-full h-full object-cover" /> : <ImageIcon className="w-7 h-7 text-muted-foreground" />}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="font-semibold">{p.name}</div>
@@ -536,7 +566,7 @@ export default function RestaurantPublic() {
                       <div key={p.id} className="flex gap-3 items-center p-2 rounded-lg border bg-muted/30">
                         <div className="w-12 h-12 rounded bg-muted overflow-hidden grid place-items-center shrink-0">
                           {p.image_url
-                            ? <img src={p.image_url} alt={p.name} loading="lazy" className="w-full h-full object-cover" />
+                            ? <img src={p.image_url} alt={p.name} loading={imagesPreloaded ? "eager" : "lazy"} decoding="async" className="w-full h-full object-cover" />
                             : <ImageIcon className="w-5 h-5 text-muted-foreground" />}
                         </div>
                         <div className="flex-1 min-w-0">
